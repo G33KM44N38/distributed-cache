@@ -10,7 +10,7 @@ import (
 
 func main() {
 	var (
-		ListenAddr = flag.String("listenaddr", ":3000", "listen address of ther server")
+		ListenAddr = flag.String("listenaddr", defaultListenAddr, "listen address; use :3000 explicitly to allow network access (unauthenticated)")
 		leaderAddr = flag.String("leaderaddr", "", "listen address of ther leader")
 	)
 	flag.Parse()
