@@ -16,6 +16,11 @@ const (
 	CmdDet
 )
 
+const (
+	MaxKeySize   = 64 << 10
+	MaxValueSize = 1 << 20
+)
+
 type CommandSet struct {
 	Key   []byte
 	Value []byte
@@ -48,9 +53,17 @@ func ParseCommand(r io.Reader) (any, error) {
 	}
 	switch cmd {
 	case CmdSet:
-		return parseSetCommand(r), nil
+		parsed, err := parseSetCommand(r)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
 	case CmdGet:
-		return parseGetCommand(r), nil
+		parsed, err := parseGetCommand(r)
+		if err != nil {
+			return nil, err
+		}
+		return parsed, nil
 	default:
 		return nil, fmt.Errorf("invalid command")
 	}
@@ -73,34 +86,43 @@ func (c *CommandGet) Bytes() []byte {
 	return buf.Bytes()
 }
 
-func parseSetCommand(r io.Reader) *CommandSet {
+func parseSetCommand(r io.Reader) (*CommandSet, error) {
 	cmd := &CommandSet{}
-
-	var keyLen int32
-	binary.Read(r, binary.LittleEndian, &keyLen)
-	cmd.Key = make([]byte, keyLen)
-	binary.Read(r, binary.LittleEndian, &cmd.Key)
-
-	var valueLen int32
-	binary.Read(r, binary.LittleEndian, &valueLen)
-	cmd.Value = make([]byte, valueLen)
-	binary.Read(r, binary.LittleEndian, &cmd.Value)
+	var err error
+	if cmd.Key, err = readField(r, "key", MaxKeySize); err != nil {
+		return nil, err
+	}
+	if cmd.Value, err = readField(r, "value", MaxValueSize); err != nil {
+		return nil, err
+	}
 
 	var ttl int32
-	binary.Read(r, binary.LittleEndian, &ttl)
+	if err := binary.Read(r, binary.LittleEndian, &ttl); err != nil {
+		return nil, fmt.Errorf("read ttl: %w", err)
+	}
 	cmd.TTL = int(ttl)
-	binary.Read(r, binary.LittleEndian, &cmd.TTL)
-
-	return cmd
+	return cmd, nil
 }
 
-func parseGetCommand(r io.Reader) *CommandGet {
-	cmd := &CommandGet{}
+func parseGetCommand(r io.Reader) (*CommandGet, error) {
+	key, err := readField(r, "key", MaxKeySize)
+	if err != nil {
+		return nil, err
+	}
+	return &CommandGet{Key: key}, nil
+}
 
-	var keyLen int32
-	binary.Read(r, binary.LittleEndian, &keyLen)
-	cmd.Key = make([]byte, keyLen)
-	binary.Read(r, binary.LittleEndian, &cmd.Key)
-
-	return cmd
+func readField(r io.Reader, name string, limit int32) ([]byte, error) {
+	var size int32
+	if err := binary.Read(r, binary.LittleEndian, &size); err != nil {
+		return nil, fmt.Errorf("read %s length: %w", name, err)
+	}
+	if size < 0 || size > limit {
+		return nil, fmt.Errorf("invalid %s length %d (limit %d)", name, size, limit)
+	}
+	data := make([]byte, int(size))
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, fmt.Errorf("read %s: %w", name, err)
+	}
+	return data, nil
 }

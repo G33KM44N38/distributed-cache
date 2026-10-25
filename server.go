@@ -10,10 +10,16 @@ import (
 	"time"
 )
 
+const (
+	defaultListenAddr  = "127.0.0.1:3000"
+	defaultReadTimeout = 5 * time.Second
+)
+
 type ServerOpts struct {
-	ListenAddr string
-	IsLeader   bool
-	LeaderAddr string
+	ListenAddr  string
+	IsLeader    bool
+	LeaderAddr  string
+	ReadTimeout time.Duration
 }
 type Server struct {
 	ServerOpts
@@ -21,6 +27,12 @@ type Server struct {
 }
 
 func NewServer(opts ServerOpts, c cache.Cacher) *Server {
+	if opts.ListenAddr == "" {
+		opts.ListenAddr = defaultListenAddr
+	}
+	if opts.ReadTimeout <= 0 {
+		opts.ReadTimeout = defaultReadTimeout
+	}
 	return &Server{
 		ServerOpts: opts,
 		cache:      c,
@@ -51,6 +63,10 @@ func (s *Server) handleConn(conn net.Conn) {
 	fmt.Println("connection made:", conn.RemoteAddr())
 
 	for {
+		if err := conn.SetReadDeadline(time.Now().Add(s.ReadTimeout)); err != nil {
+			log.Println("set read deadline error:", err)
+			return
+		}
 		cmd, err := proto.ParseCommand(conn)
 		if err != nil {
 			if err == io.EOF {
@@ -60,7 +76,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			break
 		}
 
-		go s.handleCommand(conn, cmd)
+		s.handleCommand(conn, cmd)
 	}
 	fmt.Println("connection closed:", conn.RemoteAddr())
 }
